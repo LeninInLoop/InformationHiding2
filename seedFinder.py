@@ -1,6 +1,7 @@
 import numpy as np
 import random
 
+
 class BColors:
     HEADER = '\033[95m'
     OK_BLUE = '\033[94m'
@@ -26,14 +27,34 @@ class LowCorrelationSequenceGenerator:
         self.master_rng = random.Random(master_seed)
 
     @staticmethod
-    def generate_sequence(seed, length=39):
+    def generate_sequence(seed, length=39, equal_probability=False, symbols=None, weights=None):
         rng = random.Random(seed)
-        return [rng.choice([-1, 0, 1]) for _ in range(length)]
+
+        # Default symbols if none provided
+        if symbols is None:
+            symbols = [-1, 0, 1]
+
+        # If equal probability is requested, create equal weights
+        if equal_probability:
+            weights = [1 / len(symbols)] * len(symbols)
+
+        # If weights are provided but equal_probability is False, use the provided weights
+        if weights is not None and not equal_probability:
+            # Normalize weights to sum to 1
+            total = sum(weights)
+            normalized_weights = [w / total for w in weights]
+            return [rng.choices(symbols, weights=normalized_weights)[0] for _ in range(length)]
+
+        # Use equal probability if specified, otherwise use default uniform choice
+        if equal_probability:
+            return [rng.choices(symbols, weights=weights)[0] for _ in range(length)]
+        else:
+            return [rng.choice(symbols) for _ in range(length)]
 
     @classmethod
-    def verify_sequences(cls, seed1, seed2, length=39):
-        seq1 = cls.generate_sequence(seed1, length)
-        seq2 = cls.generate_sequence(seed2, length)
+    def verify_sequences(cls, seed1, seed2, length=39, equal_probability=False, symbols=None, weights=None):
+        seq1 = cls.generate_sequence(seed1, length, equal_probability, symbols, weights)
+        seq2 = cls.generate_sequence(seed2, length, equal_probability, symbols, weights)
         correlation = np.corrcoef(seq1, seq2)[0, 1]
         return seq1, seq2, correlation
 
@@ -44,7 +65,10 @@ class LowCorrelationSequenceGenerator:
             sequence_length=39,
             min_seed=1,
             max_seed=100000,
-            verbose=True
+            verbose=True,
+            equal_probability=False,
+            symbols=None,
+            weights=None
     ):
         self.best_correlation = 1.0
         self.best_seeds = (None, None)
@@ -60,8 +84,8 @@ class LowCorrelationSequenceGenerator:
                 continue
 
             # Generate sequences
-            seq1 = self.generate_sequence(seed1, sequence_length)
-            seq2 = self.generate_sequence(seed2, sequence_length)
+            seq1 = self.generate_sequence(seed1, sequence_length, equal_probability, symbols, weights)
+            seq2 = self.generate_sequence(seed2, sequence_length, equal_probability, symbols, weights)
 
             # Calculate correlation using NumPy for consistency
             correlation = np.corrcoef(seq1, seq2)[0, 1]
@@ -76,7 +100,7 @@ class LowCorrelationSequenceGenerator:
                 # Print progress updates if verbose
                 if verbose:
                     print(BColors.WARNING + f"Attempt {attempt}: Found seeds with correlation {correlation:.6f} "
-                          f"(abs: {correlation_abs:.6f}): {self.best_seeds}" + BColors.ENDC)
+                                            f"(abs: {correlation_abs:.6f}): {self.best_seeds}" + BColors.ENDC)
 
                 # Check if we've met our target
                 if correlation_abs < target_correlation:
@@ -84,7 +108,8 @@ class LowCorrelationSequenceGenerator:
 
         # Verify the results once more
         final_seq1, final_seq2, final_correlation = self.verify_sequences(
-            self.best_seeds[0], self.best_seeds[1], sequence_length
+            self.best_seeds[0], self.best_seeds[1], sequence_length,
+            equal_probability, symbols, weights
         )
 
         return self.best_seeds, (final_seq1, final_seq2), final_correlation
@@ -99,13 +124,20 @@ class LowCorrelationSequenceGenerator:
             f.write(f"Sequence 1: {self.best_sequences[0]}\n\n")
             f.write(f"Sequence 2: {self.best_sequences[1]}\n")
 
-    def verify_reproducibility(self, sequence_length=39, verbose=True):
+    def verify_reproducibility(
+            self,
+            sequence_length=39,
+            equal_probability=False,
+            symbols=None,
+            weights=None,
+            verbose=True
+    ):
         if self.best_seeds[0] is None or self.best_seeds[1] is None:
             raise ValueError("No seeds found yet. Run find_low_correlation_seeds first.")
 
         seed1, seed2 = self.best_seeds
         reproduced_seq1, reproduced_seq2, reproduced_corr = self.verify_sequences(
-            seed1, seed2, sequence_length
+            seed1, seed2, sequence_length, equal_probability, symbols, weights
         )
 
         if verbose:

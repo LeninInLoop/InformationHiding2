@@ -6,6 +6,7 @@ from matplotlib import pyplot as plt
 from numpy import ndarray, dtype, floating
 from scipy.fft import dctn, idctn
 from PIL import Image
+from skimage.util import view_as_blocks
 
 from seedFinder import LowCorrelationSequenceGenerator
 
@@ -59,47 +60,23 @@ class ImageUtils:
 
 class DCTUtils:
     @staticmethod
-    def dctn(array: np.ndarray, dct_type: int = 2, norm: str = 'ortho') -> np.ndarray:
-        return np.array(dctn(array, type=dct_type, norm=norm), dtype=np.float64)
+    def dctn(array: np.ndarray, axes: tuple, dct_type: int = 2, norm: str = 'ortho') -> np.ndarray:
+        return np.array(dctn(array, axes=axes, type=dct_type, norm=norm), dtype=np.float64)
 
     @staticmethod
-    def idctn(array: np.ndarray, dct_type: int = 2, norm: str = 'ortho') -> np.ndarray:
-        return np.array(idctn(array, type=dct_type, norm=norm), dtype=np.float64)
+    def idctn(array: np.ndarray, axes: tuple, dct_type: int = 2, norm: str = 'ortho') -> np.ndarray:
+        return np.array(idctn(array, axes=axes, type=dct_type, norm=norm), dtype=np.float64)
 
     @staticmethod
-    def block_dct(image: np.ndarray, block_size: int = 8) -> np.ndarray:
-        height, width = image.shape
-
-        h_blocks = height // block_size
-        w_blocks = width // block_size
-        dct_blocks = np.zeros(
-            (h_blocks, w_blocks, block_size, block_size),
-            dtype=np.float64
-        )
-        for i in range(h_blocks):
-            for j in range(w_blocks):
-                block = image[
-                        i * block_size:(i + 1) * block_size,
-                        j * block_size:(j + 1) * block_size
-                        ]
-                dct_blocks[i, j] = DCTUtils.dctn(block)
-        return dct_blocks
+    def block_dct(image: np.ndarray, block_shape: int = 8) -> np.ndarray:
+        blocks = view_as_blocks(image, block_shape=block_shape)
+        return DCTUtils.dctn(blocks, axes=(2, 3))
 
     @staticmethod
-    def block_idct(dct_blocks: np.ndarray, block_size: int = 8) -> np.ndarray:
-        h_blocks, w_blocks, _, _ = dct_blocks.shape
-        reconstructed_image = np.zeros(
-            (h_blocks * block_size, w_blocks * block_size),
-            dtype=np.float64
-        )
-        for i in range(h_blocks):
-            for j in range(w_blocks):
-                idct_block = DCTUtils.idctn(dct_blocks[i, j])
-                reconstructed_image[
-                i * block_size:(i + 1) * block_size,
-                j * block_size:(j + 1) * block_size
-                ] = idct_block
-        return reconstructed_image
+    def block_idct(dct_blocks: np.ndarray) -> np.ndarray:
+        recon_blocks = DCTUtils.idctn(dct_blocks, axes=(2, 3), norm='ortho')
+        rows = [np.concatenate(row_blocks, axis=1) for row_blocks in recon_blocks]
+        return np.concatenate(rows, axis=0)
 
     @staticmethod
     def extract_dc_values(dct_blocks: np.ndarray) -> np.ndarray:
@@ -150,6 +127,7 @@ class WatermarkUtils:
             )
         if n_streams == 2:
             seeds, sequences, correlation = generator.find_low_correlation_seeds(
+                equal_probability=False,
                 target_correlation=0.003,
                 max_attempts=20000,
                 sequence_length=length
@@ -229,7 +207,6 @@ class TwoLevelDCTWatermark:
             watermark_type: int,
             gain_factor: float = 30,
             seed: int = 48,
-            verbose: bool = True
     ) -> np.ndarray:
         """Embed watermark into image using the two-level DCT algorithm
 
@@ -242,63 +219,55 @@ class TwoLevelDCTWatermark:
         6. Replace DC coefficients of the original image with watermarked LRAI
         7. Compute IBDCT to get final watermarked image
         """
-        if verbose:
-            print(f"{BColors.HEADER}Embedding watermark in image: {image_name}{BColors.ENDC}")
+        print(f"{BColors.HEADER}Embedding watermark in image: {image_name}{BColors.ENDC}")
 
         # Step 1: Load and prepare the original image
         original_path = os.path.join(self.directories['image_base_path'], f"{image_name}.bmp")
         original_image = ImageUtils.load_image(original_path)
 
-        if verbose:
-            print(f"{BColors.OK_BLUE}Original Image Size: {original_image.shape}{BColors.ENDC}")
+        print(f"{BColors.OK_BLUE}Original Image Size: {original_image.shape}{BColors.ENDC}")
 
         # Convert to grayscale if needed
         if len(original_image.shape) > 2:
             original_image = ImageUtils.convert_to_gray_scale(original_image)
             gray_image_path = os.path.join(self.directories["original_gray_path"], f"{image_name}_gray_scale.bmp")
-            ImageUtils.save_image(path=gray_image_path, img=original_image)
 
-            if verbose:
-                print(f"{BColors.OK_BLUE}Converted to Gray Scale: {original_image.shape}{BColors.ENDC}")
+            ImageUtils.save_image(path=gray_image_path, img=original_image)
+            print(f"{BColors.OK_BLUE}Converted to Gray Scale: {original_image.shape}{BColors.ENDC}")
 
         # Resize to multiple of 8 if needed
         original_image = ImageUtils.resize_image(original_image, (512, 512))
-        if verbose:
-            print(f"{BColors.OK_BLUE}Resized to : {original_image.shape}{BColors.ENDC}")
+        print(f"{BColors.OK_BLUE}Resized to : {original_image.shape}{BColors.ENDC}")
 
         # Step 1: Compute BDCT of host image
-        original_dct_blocks = DCTUtils.block_dct(original_image, block_size=8)
-        if verbose:
-            print(f"{BColors.OK_BLUE}Original DCT blocks shape: {original_dct_blocks.shape}{BColors.ENDC}")
+        original_dct_blocks = DCTUtils.block_dct(original_image, block_shape=(8,8))
+        print(f"{BColors.OK_BLUE}Original DCT blocks shape: {original_dct_blocks.shape}{BColors.ENDC}")
 
         # Step 2: Create LRAI from DC coefficients
         dc_values = DCTUtils.extract_dc_values(original_dct_blocks)
         lrai_path = os.path.join(self.directories["low_res_approx_image_path"], f"{image_name}_lrai.bmp")
         ImageUtils.save_image(path=lrai_path, img=dc_values)
 
-        if verbose:
-            print(f"{BColors.OK_BLUE}LRAI shape: {dc_values.shape}{BColors.ENDC}")
+
+        print(f"{BColors.OK_BLUE}LRAI shape: {dc_values.shape}{BColors.ENDC}")
 
         # Step 3: Compute BDCT of LRAI
-        lrai_dct_blocks = DCTUtils.block_dct(image=dc_values, block_size=8)
+        lrai_dct_blocks = DCTUtils.block_dct(image=dc_values, block_shape=(8,8))
 
-        if verbose:
-            print(f"{BColors.OK_BLUE}LRAI DCT blocks shape: {lrai_dct_blocks.shape}{BColors.ENDC}")
+        print(f"{BColors.OK_BLUE}LRAI DCT blocks shape: {lrai_dct_blocks.shape}{BColors.ENDC}")
 
         # Load or create watermark
         watermark_path = os.path.join(self.directories["watermark_path"], f"watermark.bmp")
         watermark = WatermarkUtils.create_watermark_image(save_path=watermark_path, watermark_type=watermark_type)
 
-        if verbose:
-            print(f"{BColors.OK_BLUE}Watermark Size: {watermark.shape}{BColors.ENDC}")
+        print(f"{BColors.OK_BLUE}Watermark Size: {watermark.shape}{BColors.ENDC}")
 
         # Generate noise patterns for bit 0 and bit 1
         high_freq_indices = WatermarkUtils.get_high_frequency_indices()
         noise = WatermarkUtils.generate_noise(length=len(high_freq_indices), n_streams=2, seed=seed)
 
-        if verbose:
-            print(f"{BColors.OK_BLUE}Noise Patterns Size: {noise.shape}{BColors.ENDC}")
-            print(f"{BColors.OK_BLUE}High Frequency Coefficients: {len(high_freq_indices)}{BColors.ENDC}")
+        print(f"{BColors.OK_BLUE}Noise Patterns Size: {noise.shape}{BColors.ENDC}")
+        print(f"{BColors.OK_BLUE}High Frequency Coefficients: {len(high_freq_indices)}{BColors.ENDC}")
 
         # Step 4: Embed watermark in high frequency coefficients of LRAI's DCT blocks
         watermarked_lrai_dct = WatermarkUtils.embed_watermark(
@@ -309,7 +278,7 @@ class TwoLevelDCTWatermark:
         )
 
         # Step 5: Compute IBDCT of watermarked LRAI
-        watermarked_lrai = DCTUtils.block_idct(dct_blocks=watermarked_lrai_dct, block_size=8)
+        watermarked_lrai = DCTUtils.block_idct(dct_blocks=watermarked_lrai_dct)
 
         # Save watermarked LRAI
         watermarked_lrai_path = os.path.join(
@@ -325,7 +294,7 @@ class TwoLevelDCTWatermark:
         )
 
         # Step 7: Compute IBDCT to get final watermarked image
-        watermarked_image = DCTUtils.block_idct(dct_blocks=watermarked_dct_blocks, block_size=8)
+        watermarked_image = DCTUtils.block_idct(dct_blocks=watermarked_dct_blocks)
 
         # Save watermarked image
         watermarked_path = os.path.join(
@@ -338,9 +307,8 @@ class TwoLevelDCTWatermark:
         mse = np.mean((original_image - watermarked_image) ** 2)
         psnr = 10 * np.log10(255 ** 2 / mse) if mse > 0 else float('inf')
 
-        if verbose:
-            print(f"{BColors.OK_GREEN}Watermarking completed successfully!{BColors.ENDC}")
-            print(f"{BColors.OK_GREEN}PSNR: {psnr:.2f} dB{BColors.ENDC}")
+        print(f"{BColors.OK_GREEN}Watermarking completed successfully!{BColors.ENDC}")
+        print(f"{BColors.OK_GREEN}PSNR: {psnr:.2f} dB{BColors.ENDC}")
 
         return watermarked_image, watermarked_lrai_dct
 
@@ -350,7 +318,6 @@ class TwoLevelDCTWatermark:
             image_name: str,
             gain_factor: float = 30,
             seed: int = 48,
-            verbose: bool = True
     ) -> tuple[ndarray[tuple[int, int], dtype[Any]], floating[Any]]:
         """Extract watermark from image using the two-level DCT algorithm
 
@@ -359,23 +326,19 @@ class TwoLevelDCTWatermark:
         2. Compute correlation between each block and both noise patterns
         3. Choose the pattern with higher correlation as the extracted bit
         """
-        if verbose:
-            print(f"{BColors.HEADER}Extracting watermark from image: {image_name}{BColors.ENDC}")
-
-        if verbose:
-            print(f"{BColors.OK_BLUE}Watermarked Image Size: {watermarked_image.shape}{BColors.ENDC}")
+        print(f"{BColors.HEADER}Extracting watermark from image: {image_name}{BColors.ENDC}")
+        print(f"{BColors.OK_BLUE}Watermarked Image Size: {watermarked_image.shape}{BColors.ENDC}")
 
         # Step 1: Compute BDCT of watermarked image
-        watermarked_dct_blocks = DCTUtils.block_dct(watermarked_image, block_size=8)
+        watermarked_dct_blocks = DCTUtils.block_dct(watermarked_image, block_shape=(8,8))
 
         # Extract DC values to create LRAI
         dc_values = DCTUtils.extract_dc_values(watermarked_dct_blocks)
 
         # Compute BDCT of LRAI
-        lrai_dct_blocks = DCTUtils.block_dct(image=dc_values, block_size=8)
+        lrai_dct_blocks = DCTUtils.block_dct(image=dc_values, block_shape=(8,8))
 
-        if verbose:
-            print(f"{BColors.OK_BLUE}LRAI DCT blocks shape: {lrai_dct_blocks.shape}{BColors.ENDC}")
+        print(f"{BColors.OK_BLUE}LRAI DCT blocks shape: {lrai_dct_blocks.shape}{BColors.ENDC}")
 
         # Load original watermark for comparison
         watermark_path = os.path.join(self.directories["watermark_path"], f"watermark.bmp")
@@ -410,17 +373,16 @@ class TwoLevelDCTWatermark:
         # Calculate detection accuracy
         detection_accuracy = np.mean(recovered_watermark == original_watermark)
 
-        if verbose:
-            print(f"{BColors.OK_GREEN}Watermark Extraction completed.{BColors.ENDC}")
-            print(f"{BColors.OK_GREEN}Detection Accuracy: {detection_accuracy * 100:.2f}%{BColors.ENDC}")
+        print(f"{BColors.OK_GREEN}Watermark Extraction completed.{BColors.ENDC}")
+        print(f"{BColors.OK_GREEN}Detection Accuracy: {detection_accuracy * 100:.2f}%{BColors.ENDC}")
 
-            # Visualize watermark comparison
-            self._visualize_watermark_comparison(
-                original=original_watermark,
-                recovered=recovered_watermark,
-                image_name=image_name,
-                gain_factor=gain_factor
-            )
+        # Visualize watermark comparison
+        self._visualize_watermark_comparison(
+            original=original_watermark,
+            recovered=recovered_watermark,
+            image_name=image_name,
+            gain_factor=gain_factor
+        )
         return recovered_watermark, detection_accuracy
 
     def _visualize_watermark_comparison(
@@ -484,7 +446,6 @@ def main():
         watermark_type=2,
         gain_factor=30,
         seed=42,
-        verbose=True
     )
 
     # Extract and verify watermark
@@ -493,7 +454,6 @@ def main():
         image_name="lenna",
         gain_factor=30,
         seed=42,
-        verbose=True
     )
 
     print(f"Watermark detection accuracy: {accuracy * 100:.2f}%")
