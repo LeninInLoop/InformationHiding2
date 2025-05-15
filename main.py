@@ -1,4 +1,4 @@
-import os
+import os, io
 from typing import Dict, Tuple, List, Any
 
 import numpy as np
@@ -121,13 +121,20 @@ class WatermarkUtils:
         return watermark_array
 
     @staticmethod
-    def generate_noise(length, n_streams=2, seed=None, image_name: str = "lenna", watermark_type: int = 1) -> np.ndarray:
+    def generate_noise(
+            length,
+            n_streams=2,
+            seed=None,
+            image_name: str = "lenna",
+            watermark_type: int = 1,
+            equal_probability: bool = False
+    ) -> np.ndarray:
         generator = LowCorrelationSequenceGenerator(
             master_seed = seed
             )
         if n_streams == 2:
             seeds, sequences, correlation = generator.find_low_correlation_seeds(
-                equal_probability=False,
+                equal_probability=equal_probability,
                 target_correlation=0.003,
                 max_attempts=20000,
                 sequence_length=length
@@ -207,6 +214,7 @@ class TwoLevelDCTWatermark:
             watermark_type: int,
             gain_factor: float = 30,
             seed: int = 48,
+            equal_probability: bool = False,
     ) -> np.ndarray:
         """Embed watermark into image using the two-level DCT algorithm
 
@@ -269,7 +277,8 @@ class TwoLevelDCTWatermark:
             n_streams=2,
             seed=seed,
             image_name=image_name,
-            watermark_type=watermark_type
+            watermark_type=watermark_type,
+            equal_probability=equal_probability
         )
 
         print(f"{BColors.OK_BLUE}Noise Patterns Size: {noise.shape}{BColors.ENDC}")
@@ -324,7 +333,8 @@ class TwoLevelDCTWatermark:
             image_name: str,
             gain_factor: float = 30,
             seed: int = 48,
-            watermark_type: int = 1
+            watermark_type: int = 1,
+            equal_probability: bool = False
     ) -> tuple[ndarray[tuple[int, int], dtype[Any]], floating[Any]]:
         """Extract watermark from image using the two-level DCT algorithm
 
@@ -359,7 +369,8 @@ class TwoLevelDCTWatermark:
             n_streams=2,
             seed=seed,
             image_name=image_name,
-            watermark_type=watermark_type
+            watermark_type=watermark_type,
+            equal_probability=equal_probability
         )
 
         # Step 2 & 3: Calculate correlation and extract watermark bits
@@ -450,7 +461,7 @@ class Helper:
             max_seed=100,
             max_attempts=1000
     ):
-
+        """Find optimal seed for watermarking with early stopping on perfect match"""
         print(f"{BColors.HEADER}Finding optimal seed for image: {image_name}{BColors.ENDC}")
         print(f"{BColors.OK_BLUE}Parameters: watermark_type={watermark_type}, gain_factor={gain_factor}{BColors.ENDC}")
         print(f"{BColors.OK_BLUE}Testing seeds from {start_seed} to {max_seed}{BColors.ENDC}")
@@ -505,7 +516,7 @@ class Helper:
                         f"{BColors.OK_GREEN}New best seed found: {best_seed} with accuracy {best_accuracy * 100:.2f}%{BColors.ENDC}")
 
                 # If we reached 100% accuracy, break
-                if accuracy == 1.0 or accuracy == 1:
+                if accuracy >= 0.999:  # Using 0.999 instead of 1.0 to account for floating point precision
                     print(f"{BColors.OK_GREEN}Found perfect seed: {seed} with 100% accuracy!{BColors.ENDC}")
                     return seed
 
@@ -522,14 +533,16 @@ class Helper:
 
     @staticmethod
     def batch_test_seeds(watermarker, image_names, watermark_types, gain_factors, seed_ranges):
+        """Test multiple configurations to find optimal seeds"""
         start_seed, max_seed, max_attempts = seed_ranges
         results = {}
 
         for image_name in image_names:
             for watermark_type in watermark_types:
                 for gain_factor in gain_factors:
+                    config_key = f"{image_name}_type{watermark_type}_gain{gain_factor}"
                     print(
-                        f"\n{BColors.HEADER}Testing configuration: Image={image_name}, Type={watermark_type}, Gain={gain_factor}{BColors.ENDC}")
+                        f"\n{BColors.HEADER}Testing configuration: {config_key}{BColors.ENDC}")
 
                     optimal_seed = Helper.find_optimal_seed(
                         watermarker=watermarker,
@@ -541,7 +554,6 @@ class Helper:
                         max_attempts=max_attempts
                     )
 
-                    config_key = f"{image_name}_type{watermark_type}_gain{gain_factor}"
                     results[config_key] = optimal_seed
 
         # Print summary of results
@@ -551,6 +563,342 @@ class Helper:
             print(f"{BColors.OK_BLUE}{config}: Seed={seed}, Accuracy={accuracy_text}{BColors.ENDC}")
 
         return results
+
+    @staticmethod
+    def _prepare_image_for_analysis(watermarker, image_name):
+        """Helper method to load and prepare images for analysis"""
+        # Load and prepare the original image
+        original_path = os.path.join(watermarker.directories['image_base_path'], f"{image_name}.bmp")
+        original_image = ImageUtils.load_image(original_path)
+
+        # Convert to grayscale if needed
+        if len(original_image.shape) > 2:
+            original_image = ImageUtils.convert_to_gray_scale(original_image)
+
+        # Resize to multiple of 8 if needed
+        original_image = ImageUtils.resize_image(original_image, (512, 512))
+
+        return original_image
+
+    @staticmethod
+    def _plot_relationship(x_values, results, title, xlabel, ylabel, save_path,
+                           ylim=None, legend_loc='best'):
+        """Helper method to create standardized plots"""
+        plt.figure(figsize=(10, 6))
+        markers = ['s', 'o', '*', '+', 'x', 'd', '^']
+        linestyles = ['-', '--', '-.', ':', '-', '--', '-.']
+
+        for i, (label, values) in enumerate(results.items()):
+            plt.plot(
+                x_values,
+                values,
+                marker=markers[i % len(markers)],
+                linestyle=linestyles[i % len(linestyles)],
+                label=label
+            )
+
+        plt.xlabel(xlabel)
+        plt.ylabel(ylabel)
+        plt.title(title)
+        plt.grid(True)
+        plt.legend(loc=legend_loc)
+
+        if ylim is not None:
+            plt.ylim(ylim)
+
+        plt.savefig(save_path)
+        plt.show()
+
+        return results
+
+    @staticmethod
+    def analyze_gain_factor_psnr_relationship(
+            watermarker,
+            image_names=None,
+            gain_factors=range(5, 36, 5),
+            watermark_type=2,
+            seed=48,
+            save_path="gain_factor_psnr_relationship.png",
+            equal_probability=False
+    ):
+        """Analyze relationship between gain factor and PSNR"""
+        # Use default images if none provided
+        if image_names is None:
+            image_names = ["goldhill", "lenna"]
+
+        # Dictionary to store results
+        results = {}
+
+        # Process each image
+        for image_name in image_names:
+            print(f"{BColors.HEADER}Processing image: {image_name}{BColors.ENDC}")
+            psnr_values = []
+
+            # Get original image
+            original_image = Helper._prepare_image_for_analysis(watermarker, image_name)
+
+            # Test different gain factors
+            for gain in gain_factors:
+                print(f"{BColors.OK_BLUE}Testing gain factor: {gain}{BColors.ENDC}")
+
+                # Embed watermark
+                watermarked_image = watermarker.embed_watermark(
+                    image_name=image_name,
+                    watermark_type=watermark_type,
+                    gain_factor=gain,
+                    seed=seed,
+                    equal_probability=equal_probability
+                )
+
+                # Calculate PSNR
+                mse = np.mean((original_image - watermarked_image) ** 2)
+                psnr = 10 * np.log10(255 ** 2 / mse) if mse > 0 else float('inf')
+
+                # Store result
+                psnr_values.append(psnr)
+                print(f"{BColors.OK_GREEN}PSNR: {psnr:.2f} dB{BColors.ENDC}")
+
+                # Extract watermark to check accuracy
+                _, accuracy = watermarker.extract_watermark(
+                    watermarked_image=watermarked_image,
+                    image_name=image_name,
+                    gain_factor=gain,
+                    seed=seed,
+                    watermark_type=watermark_type
+                )
+                print(f"{BColors.OK_GREEN}Watermark detection accuracy: {accuracy * 100:.2f}%{BColors.ENDC}")
+
+            results[image_name] = psnr_values
+
+        # Create plot
+        title = f'Relationship between Gain Factor and PSNR\n(Master Seed: {seed}, Watermark Type: {watermark_type}, Equal Probability: {equal_probability})'
+        return Helper._plot_relationship(
+            gain_factors, results, title, 'Gain Factor', 'PSNR (dB)', save_path
+        )
+
+    @staticmethod
+    def analyze_gain_factor_correlation_relationship(
+            watermarker,
+            image_names=None,
+            gain_factors=range(5, 36, 5),
+            watermark_type=2,
+            seed=48,
+            save_path="gain_factor_correlation_relationship.png",
+            equal_probability=False
+    ):
+        """Analyze relationship between gain factor and correlation index"""
+        # Use default images if none provided
+        if image_names is None:
+            image_names = ["lenna", "goldhill"]
+
+        # Dictionary to store results
+        results = {}
+
+        # Load original watermark
+        watermark_path = os.path.join(watermarker.directories["watermark_path"], f"watermark_type{watermark_type}.bmp")
+        original_watermark = np.array(Image.open(watermark_path), dtype=np.bool_)
+        orig_watermark_float = original_watermark.astype(np.float64)
+
+        # Process each image
+        for image_name in image_names:
+            print(f"{BColors.HEADER}Processing image: {image_name}{BColors.ENDC}")
+            correlation_values = []
+
+            # Get original image
+            original_image = Helper._prepare_image_for_analysis(watermarker, image_name)
+
+            # Test different gain factors
+            for gain in gain_factors:
+                print(f"{BColors.OK_BLUE}Testing gain factor: {gain}{BColors.ENDC}")
+
+                # Embed watermark
+                watermarked_image = watermarker.embed_watermark(
+                    image_name=image_name,
+                    watermark_type=watermark_type,
+                    gain_factor=gain,
+                    seed=seed,
+                    equal_probability=equal_probability
+                )
+
+                # Extract watermark
+                recovered_watermark, accuracy = watermarker.extract_watermark(
+                    watermarked_image=watermarked_image,
+                    image_name=image_name,
+                    gain_factor=gain,
+                    seed=seed,
+                    watermark_type=watermark_type,
+                    equal_probability=equal_probability
+                )
+
+                # Calculate normalized correlation
+                recovered_watermark_float = recovered_watermark.astype(np.float64)
+                correlation = np.corrcoef(orig_watermark_float.flatten(), recovered_watermark_float.flatten())[0, 1]
+
+                # Store result
+                correlation_values.append(correlation)
+                print(f"{BColors.OK_GREEN}Normalized Correlation: {correlation:.4f}{BColors.ENDC}")
+                print(f"{BColors.OK_GREEN}Watermark detection accuracy: {accuracy * 100:.2f}%{BColors.ENDC}")
+
+            results[image_name] = correlation_values
+
+        # Create plot
+        title = f'Relationship between Gain Factor and Correlation\n(Master Seed: {seed}, Watermark Type: {watermark_type}, Equal Probability: {equal_probability})'
+        return Helper._plot_relationship(
+            gain_factors, results, title, 'Gain Factor', 'Correlation Index',
+            save_path, ylim=(0, 1.0), legend_loc='lower right'
+        )
+
+    @staticmethod
+    def analyze_jpeg_quality_correlation(
+            watermarker,
+            image_name="lenna",
+            gain_factors=[5, 10, 15, 25, 20, 30, 35],
+            quality_factors=range(10, 101, 10),
+            watermark_type=2,
+            seed=48,
+            save_path="jpeg_quality_correlation_relationship.png",
+            equal_probability=False
+    ):
+        """Analyze resilience against JPEG compression"""
+        # Dictionary to store results
+        results = {}
+
+        # Load original watermark
+        watermark_path = os.path.join(watermarker.directories["watermark_path"], f"watermark_type{watermark_type}.bmp")
+        original_watermark = np.array(Image.open(watermark_path), dtype=np.bool_)
+        orig_watermark_float = original_watermark.astype(np.float64)
+
+        # Get original image
+        original_image = Helper._prepare_image_for_analysis(watermarker, image_name)
+
+        # Process each gain factor
+        for gain in gain_factors:
+            print(f"{BColors.HEADER}Processing gain factor: {gain}{BColors.ENDC}")
+            correlation_values = []
+
+            # Embed watermark
+            watermarked_image = watermarker.embed_watermark(
+                image_name=image_name,
+                watermark_type=watermark_type,
+                gain_factor=gain,
+                seed=seed,
+                equal_probability=equal_probability
+            )
+
+            # Test different JPEG quality factors
+            for quality in quality_factors:
+                print(f"{BColors.OK_BLUE}Testing JPEG quality: {quality}{BColors.ENDC}")
+
+                # Apply JPEG compression
+                img_pil = Image.fromarray(watermarked_image.astype(np.uint8))
+                jpeg_buffer = io.BytesIO()
+                img_pil.save(jpeg_buffer, format="JPEG", quality=quality)
+                jpeg_buffer.seek(0)
+                compressed_image = np.array(Image.open(jpeg_buffer), dtype=np.float32)
+
+                # Extract watermark from compressed image
+                recovered_watermark, accuracy = watermarker.extract_watermark(
+                    watermarked_image=compressed_image,
+                    image_name=image_name,
+                    gain_factor=gain,
+                    seed=seed,
+                    watermark_type=watermark_type,
+                    equal_probability=equal_probability
+                )
+
+                # Calculate normalized correlation
+                recovered_watermark_float = recovered_watermark.astype(np.float64)
+                correlation = np.corrcoef(orig_watermark_float.flatten(), recovered_watermark_float.flatten())[0, 1]
+
+                # Store result
+                correlation_values.append(correlation)
+                print(f"{BColors.OK_GREEN}Normalized Correlation: {correlation:.4f}{BColors.ENDC}")
+
+            results[f'G: {gain}'] = correlation_values
+
+        # Create plot
+        title = f'Relationship between JPEG quality factor and correlation\nfor {image_name} (Master Seed: {seed}, Watermark Type: {watermark_type}, Equal Probability: {equal_probability})'
+        return Helper._plot_relationship(
+            quality_factors, results, title, 'JPEG Quality Factor', 'Correlation Index',
+            save_path, ylim=(0, 1.0), legend_loc='lower right'
+        )
+
+    @staticmethod
+    def analyze_gaussian_noise_correlation(
+            watermarker,
+            image_name="lenna",
+            gain_factors=[10, 15, 20, 25, 30, 35],
+            noise_levels=range(0, 51, 5),
+            watermark_type=2,
+            seed=48,
+            save_path="gaussian_noise_correlation_relationship.png",
+            equal_probability=False
+    ):
+        """Analyze resilience against Gaussian noise"""
+        # Dictionary to store results
+        results = {}
+
+        # Load original watermark
+        watermark_path = os.path.join(watermarker.directories["watermark_path"], f"watermark_type{watermark_type}.bmp")
+        original_watermark = np.array(Image.open(watermark_path), dtype=np.bool_)
+        orig_watermark_float = original_watermark.astype(np.float64)
+
+        # Get original image
+        original_image = Helper._prepare_image_for_analysis(watermarker, image_name)
+
+        # Process each gain factor
+        for gain in gain_factors:
+            print(f"{BColors.HEADER}Processing gain factor: {gain}{BColors.ENDC}")
+            correlation_values = []
+
+            # Embed watermark
+            watermarked_image = watermarker.embed_watermark(
+                image_name=image_name,
+                watermark_type=watermark_type,
+                gain_factor=gain,
+                seed=seed,
+                equal_probability=equal_probability
+            )
+
+            # Test different noise levels
+            for noise_level in noise_levels:
+                print(f"{BColors.OK_BLUE}Testing noise level: {noise_level}{BColors.ENDC}")
+
+                if noise_level == 0:
+                    # No noise case
+                    noisy_image = watermarked_image.copy()
+                else:
+                    # Add Gaussian noise
+                    np.random.seed(seed)  # For reproducibility
+                    noise = np.random.normal(0, noise_level, watermarked_image.shape)
+                    noisy_image = np.clip(watermarked_image + noise, 0, 255)
+
+                # Extract watermark from noisy image
+                recovered_watermark, accuracy = watermarker.extract_watermark(
+                    watermarked_image=noisy_image,
+                    image_name=image_name,
+                    gain_factor=gain,
+                    seed=seed,
+                    watermark_type=watermark_type,
+                    equal_probability=equal_probability
+                )
+
+                # Calculate normalized correlation
+                recovered_watermark_float = recovered_watermark.astype(np.float64)
+                correlation = np.corrcoef(orig_watermark_float.flatten(), recovered_watermark_float.flatten())[0, 1]
+
+                # Store result
+                correlation_values.append(correlation)
+                print(f"{BColors.OK_GREEN}Normalized Correlation: {correlation:.4f}{BColors.ENDC}")
+
+            results[f'Gain Factor: {gain}'] = correlation_values
+
+        # Create plot
+        title = f'Relationship between Gaussian noise and correlation\nfor {image_name} (Master Seed: {seed}, Watermark Type: {watermark_type}, Equal Probability: {equal_probability})'
+        return Helper._plot_relationship(
+            noise_levels, results, title, 'σ Gaussian Noise', 'Correlation Index',
+            save_path, ylim=(0, 1.0), legend_loc='upper right'
+        )
 
 def main():
     # Define directory structure
@@ -563,6 +911,7 @@ def main():
         "watermarked_low_res_image_path": "Images/Watermarked_Images/LRAI",
         "extracted_watermark_path": "Images/Extracted_Watermarks",
         "watermark_visualization_path": "Images/Watermark_Visualizations",
+        "results": "Images/Results",
     }
 
     # Initialize Two-Level DCT Watermarking
@@ -570,14 +919,16 @@ def main():
 
     # Process image with watermark           G = 30                            G = 15
     watermark_type = 2                  # Watermark Type 2                # Watermark Type 2
-    seed = 800                          # GoldHill = 104, Lenna = 2537    # GoldHill = 800(95.31%), Lenna = 1419(93.75%)
-    gain_factor = 15                    # Watermark Type 1                # Watermark Type 1
-    image_name = "goldhill"             # GoldHill = 292, Lenna = 2825    # GoldHill = 4891(96.88%), Lenna = 765(92.19%)
+    seed = 104                         # GoldHill = 104, Lenna = 2537    # GoldHill = 800(95.31%), Lenna = 1419(93.75%)
+    gain_factor = 30                    # Watermark Type 1                # Watermark Type 1
+    image_name = "lenna"                # GoldHill = 292, Lenna = 2825    # GoldHill = 4891(96.88%), Lenna = 765(92.19%)
+    equal_probability = False
     watermarked_image = watermarker.embed_watermark(
         image_name=image_name,
         watermark_type=watermark_type,
         gain_factor=gain_factor,
         seed=seed,
+        equal_probability=equal_probability
     )
 
     # Extract and verify watermark
@@ -591,8 +942,40 @@ def main():
 
     print(f"Watermark detection accuracy: {accuracy * 100:.2f}%")
 
-
-
+    Helper.analyze_gain_factor_psnr_relationship(
+        watermarker=watermarker,
+        image_names=["lenna", "goldhill"],
+        seed=seed,
+        equal_probability=equal_probability,
+        save_path=os.path.join(directories["results"], f"{image_name}_{seed}_{watermark_type}_"
+                                                       f"gain_factor_psnr_relationship_{equal_probability}.png")
+    )
+    Helper.analyze_gain_factor_correlation_relationship(
+        watermarker=watermarker,
+        image_names=["lenna", "goldhill"],
+        seed=seed,
+        equal_probability=equal_probability,
+        save_path=os.path.join(directories["results"], f"{image_name}_{seed}_{watermark_type}_"
+                                                       f"gain_factor_NC_relationship_{equal_probability}.png")
+    )
+    for image_name in ["lenna", "goldhill"]:
+        Helper.analyze_jpeg_quality_correlation(
+            watermarker=watermarker,
+            image_name=image_name,
+            seed=seed,
+            equal_probability=equal_probability,
+            save_path=os.path.join(directories["results"], f"{image_name}_{seed}_{watermark_type}_"
+                                                           f"gain_factor_JPEG_relationship_{equal_probability}.png")
+        )
+        Helper.analyze_gaussian_noise_correlation(
+            watermarker=watermarker,
+            image_name=image_name,
+            seed=seed,
+            equal_probability=equal_probability,
+            save_path=os.path.join(directories["results"], f"{image_name}_{seed}_{watermark_type}_"
+                                                           f"gain_factor_noise_relationship_{equal_probability}.png")
+        )
+    
 def main_with_seed_finder():
     # Define directory structure
     directories = {
