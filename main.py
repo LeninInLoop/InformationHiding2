@@ -1,11 +1,13 @@
 import os
-from typing import Dict, Tuple, Optional, List, Union, Any
+from typing import Dict, Tuple, List, Any
+
 import numpy as np
 from matplotlib import pyplot as plt
 from numpy import ndarray, dtype, floating
 from scipy.fft import dctn, idctn
 from PIL import Image
 
+from seedFinder import LowCorrelationSequenceGenerator
 
 class BColors:
     HEADER = '\033[95m'
@@ -142,18 +144,27 @@ class WatermarkUtils:
         return watermark_array
 
     @staticmethod
-    def generate_noise(shape, n_streams=2, seed=None) -> np.ndarray:
-        seeds = [seed + i if seed is not None else None for i in range(n_streams)]
-        noises = []
-        choices = [-1, 0, 1]
-        probs = [1 / 3, 1 / 3, 1 / 3]
+    def generate_noise(length, n_streams=2, seed=None) -> np.ndarray:
+        generator = LowCorrelationSequenceGenerator(
+            master_seed = seed
+            )
 
-        for i in range(n_streams):
-            rng = np.random.default_rng(seeds[i])
-            noise = rng.choice(choices, size=shape, p=probs)
-            noises.append(noise)
+        if n_streams == 2:
+            seeds, sequences, correlation = generator.find_low_correlation_seeds(
+                target_correlation=0.003,
+                max_attempts=20000,
+                sequence_length=length
+            )
+        else:
+            raise Exception("Only Implemented for 2 Sequence Generation")
 
-        return np.array(noises, dtype=np.float32)
+        print(BColors.OK_GREEN + f"Best seeds found: {seeds}" + BColors.ENDC)
+        print(BColors.OK_GREEN + f"Correlation: {correlation:.6f}" + BColors.ENDC)
+
+        is_reproducible, regenerated_corr = generator.verify_reproducibility()
+        print(BColors.OK_GREEN + f"Sequences are reproducible: {is_reproducible}" + BColors.ENDC)
+        generator.save_seed_results("my_low_correlation_seeds.txt")
+        return np.array(sequences, dtype=np.float32)
 
     @staticmethod
     def is_high_frequency(u: int, v: int, threshold: int = 5) -> bool:
@@ -182,8 +193,8 @@ class WatermarkUtils:
 
         for i in range(min(dct_blocks.shape[0], watermark_height)):
             for j in range(min(dct_blocks.shape[1], watermark_width)):
-                # Select noise pattern based on watermark bit (0 or 1)
-                noise_pattern = noise[1 if watermark[i, j] else 0]
+                # Select a noise pattern based on watermark bit (0 or 1)
+                noise_pattern = noise[1] if watermark[i, j] else noise[0]
                 noise_idx = 0
 
                 # Apply noise to high frequency components
@@ -202,9 +213,10 @@ class WatermarkUtils:
         high_freq_values = np.array([block_dct_coeffs[u, v] for u, v in high_freq_indices])
         correlations = np.zeros(2)
         for bit in range(2):
-            noise_values = noise_patterns[bit][:len(high_freq_indices)]
-            corr_matrix = np.corrcoef(high_freq_values, noise_values)
-            correlations[bit] = corr_matrix[0, 1]
+            noise_values = noise_patterns[bit]
+            correlations[bit] = np.corrcoef(high_freq_values, noise_values)[0,1]
+            print(f"corr matrix:(bit = {bit})\n", correlations[bit])
+
         return correlations
 
 
@@ -223,7 +235,7 @@ class TwoLevelDCTWatermark:
             image_name: str,
             watermark_type: int,
             gain_factor: float = 30,
-            noise_seed: int = 48,
+            seed: int = 48,
             verbose: bool = True
     ) -> np.ndarray:
         """Embed watermark into image using the two-level DCT algorithm
@@ -234,7 +246,7 @@ class TwoLevelDCTWatermark:
         3. Compute BDCT of LRAI
         4. Embed watermark as pseudo-random noise into high frequencies of LRAI's DCT
         5. Compute IBDCT of watermarked LRAI
-        6. Replace DC coefficients of original image with watermarked LRAI
+        6. Replace DC coefficients of the original image with watermarked LRAI
         7. Compute IBDCT to get final watermarked image
         """
         if verbose:
@@ -263,9 +275,9 @@ class TwoLevelDCTWatermark:
 
         # Step 1: Compute BDCT of host image
         original_dct_blocks = DCTUtils.block_dct(original_image, block_size=8)
-
         if verbose:
             print(f"{BColors.OK_BLUE}Original DCT blocks shape: {original_dct_blocks.shape}{BColors.ENDC}")
+        print(original_dct_blocks)
 
         # Step 2: Create LRAI from DC coefficients
         dc_values = DCTUtils.extract_dc_values(original_dct_blocks)
@@ -274,12 +286,14 @@ class TwoLevelDCTWatermark:
 
         if verbose:
             print(f"{BColors.OK_BLUE}LRAI shape: {dc_values.shape}{BColors.ENDC}")
+        print(dc_values)
 
         # Step 3: Compute BDCT of LRAI
         lrai_dct_blocks = DCTUtils.block_dct(image=dc_values, block_size=8)
 
         if verbose:
             print(f"{BColors.OK_BLUE}LRAI DCT blocks shape: {lrai_dct_blocks.shape}{BColors.ENDC}")
+        print(lrai_dct_blocks)
 
         # Load or create watermark
         watermark_path = os.path.join(self.directories["watermark_path"], f"watermark.bmp")
@@ -290,7 +304,7 @@ class TwoLevelDCTWatermark:
 
         # Generate noise patterns for bit 0 and bit 1
         high_freq_indices = WatermarkUtils.get_high_frequency_indices()
-        noise = WatermarkUtils.generate_noise(shape=(len(high_freq_indices),), n_streams=2, seed=noise_seed)
+        noise = WatermarkUtils.generate_noise(length=len(high_freq_indices), n_streams=2, seed=seed)
 
         if verbose:
             print(f"{BColors.OK_BLUE}Noise Patterns Size: {noise.shape}{BColors.ENDC}")
@@ -303,9 +317,11 @@ class TwoLevelDCTWatermark:
             noise=noise,
             gain_factor=gain_factor
         )
+        print(watermarked_lrai_dct)
 
         # Step 5: Compute IBDCT of watermarked LRAI
         watermarked_lrai = DCTUtils.block_idct(dct_blocks=watermarked_lrai_dct, block_size=8)
+        print(watermarked_lrai)
 
         # Save watermarked LRAI
         watermarked_lrai_path = os.path.join(
@@ -322,6 +338,7 @@ class TwoLevelDCTWatermark:
 
         # Step 7: Compute IBDCT to get final watermarked image
         watermarked_image = DCTUtils.block_idct(dct_blocks=watermarked_dct_blocks, block_size=8)
+        print(watermarked_image)
 
         # Save watermarked image
         watermarked_path = os.path.join(
@@ -342,9 +359,10 @@ class TwoLevelDCTWatermark:
 
     def extract_watermark(
             self,
+            watermarked_image: np.ndarray,
             image_name: str,
             gain_factor: float = 30,
-            noise_seed: int = 48,
+            seed: int = 48,
             verbose: bool = True
     ) -> tuple[ndarray[tuple[int, int], dtype[Any]], floating[Any]]:
         """Extract watermark from image using the two-level DCT algorithm
@@ -353,24 +371,12 @@ class TwoLevelDCTWatermark:
         1. Do steps 1-3 from embedding algorithm (get LRAI's DCT blocks)
         2. Compute correlation between each block and both noise patterns
         3. Choose the pattern with higher correlation as the extracted bit
-        4. Compare average correlation with threshold to detect watermark presence
         """
         if verbose:
             print(f"{BColors.HEADER}Extracting watermark from image: {image_name}{BColors.ENDC}")
 
-        # Load watermarked image
-        watermarked_path = os.path.join(
-            self.directories["watermarked_image_path"],
-            f"Watermarked_{image_name}_gain_{gain_factor}.bmp"
-        )
-        watermarked_image = ImageUtils.load_image(watermarked_path)
-
         if verbose:
             print(f"{BColors.OK_BLUE}Watermarked Image Size: {watermarked_image.shape}{BColors.ENDC}")
-
-        # Convert to grayscale if needed
-        if len(watermarked_image.shape) > 2:
-            watermarked_image = ImageUtils.convert_to_gray_scale(watermarked_image)
 
         # Step 1: Compute BDCT of watermarked image
         watermarked_dct_blocks = DCTUtils.block_dct(watermarked_image, block_size=8)
@@ -391,12 +397,10 @@ class TwoLevelDCTWatermark:
 
         # Generate the same noise patterns used for embedding
         high_freq_indices = WatermarkUtils.get_high_frequency_indices()
-        noise = WatermarkUtils.generate_noise(shape=(len(high_freq_indices),), n_streams=2, seed=noise_seed)
+        noise = WatermarkUtils.generate_noise(length=len(high_freq_indices), n_streams=2, seed=seed)
 
         # Step 2 & 3: Calculate correlation and extract watermark bits
         recovered_watermark = np.zeros((watermark_height, watermark_width), dtype=np.bool_)
-        correlation_values = np.zeros((watermark_height, watermark_width, 2))
-
         for i in range(min(lrai_dct_blocks.shape[0], watermark_height)):
             for j in range(min(lrai_dct_blocks.shape[1], watermark_width)):
 
@@ -405,10 +409,9 @@ class TwoLevelDCTWatermark:
                     noise_patterns=noise,
                     high_freq_indices=high_freq_indices
                 )
-                correlation_values[i, j] = correlations
 
-                # Choose bit with higher correlation
-                recovered_watermark[i, j] = np.argmax(correlations) == 1
+                # Choose A bit with higher correlation
+                recovered_watermark[i, j] = np.argmax(correlations)
 
         # Save recovered watermark
         recovered_watermark_path = os.path.join(
@@ -489,19 +492,20 @@ def main():
     watermarker = TwoLevelDCTWatermark(directories)
 
     # Process image with watermark
-    watermarker.embed_watermark(
+    watermarked_image = watermarker.embed_watermark(
         image_name="lenna",
-        watermark_type=1,
+        watermark_type=2,
         gain_factor=30,
-        noise_seed=48,
+        seed=42,
         verbose=True
     )
 
     # Extract and verify watermark
     recovered_watermark, accuracy = watermarker.extract_watermark(
+        watermarked_image=watermarked_image,
         image_name="lenna",
         gain_factor=30,
-        noise_seed=48,
+        seed=42,
         verbose=True
     )
 
