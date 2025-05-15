@@ -316,7 +316,7 @@ class TwoLevelDCTWatermark:
         print(f"{BColors.OK_GREEN}Watermarking completed successfully!{BColors.ENDC}")
         print(f"{BColors.OK_GREEN}PSNR: {psnr:.2f} dB{BColors.ENDC}")
 
-        return watermarked_image, watermarked_lrai_dct
+        return watermarked_image
 
     def extract_watermark(
             self,
@@ -568,12 +568,12 @@ def main():
     # Initialize Two-Level DCT Watermarking
     watermarker = TwoLevelDCTWatermark(directories)
 
-    # Process image with watermark
-    watermark_type = 1             # Watermark Type 2
-    seed = 292                     # GoldHill = 104, Lenna = 2537
-    gain_factor = 30               # Watermark Type 1
-    image_name = "goldhill"        # GoldHill = 292, Lenna = 2825
-    watermarked_image, watermarked_lrai_dct = watermarker.embed_watermark(
+    # Process image with watermark           G = 30                            G = 15
+    watermark_type = 2                  # Watermark Type 2                # Watermark Type 2
+    seed = 800                          # GoldHill = 104, Lenna = 2537    # GoldHill = 800(95.31%), Lenna = 1419(93.75%)
+    gain_factor = 15                    # Watermark Type 1                # Watermark Type 1
+    image_name = "goldhill"             # GoldHill = 292, Lenna = 2825    # GoldHill = 4891(96.88%), Lenna = 765(92.19%)
+    watermarked_image = watermarker.embed_watermark(
         image_name=image_name,
         watermark_type=watermark_type,
         gain_factor=gain_factor,
@@ -612,8 +612,8 @@ def main_with_seed_finder():
     Helper.batch_test_seeds(
         watermarker=watermarker,
         image_names=["goldhill"],
-        watermark_types=[1],
-        gain_factors=[30],
+        watermark_types=[2],
+        gain_factors=[15],
         seed_ranges=(1, 100000, 5000)
     )
 
