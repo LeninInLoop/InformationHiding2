@@ -121,7 +121,7 @@ class WatermarkUtils:
         return watermark_array
 
     @staticmethod
-    def generate_noise(length, n_streams=2, seed=None, image_name: str = "lenna") -> np.ndarray:
+    def generate_noise(length, n_streams=2, seed=None, image_name: str = "lenna", watermark_type: int = 1) -> np.ndarray:
         generator = LowCorrelationSequenceGenerator(
             master_seed = seed
             )
@@ -141,7 +141,7 @@ class WatermarkUtils:
         is_reproducible, regenerated_corr = generator.verify_reproducibility()
         print(BColors.OK_GREEN + f"Sequences are reproducible: {is_reproducible}" + BColors.ENDC)
 
-        generator.save_seed_results(f"{image_name}_{seed}_low_correlation_seeds.txt")
+        generator.save_seed_results(f"{image_name}_{seed}_low_correlation_seeds_type{watermark_type}.txt")
         return np.array(sequences, dtype=np.float32)
 
     @staticmethod
@@ -257,7 +257,7 @@ class TwoLevelDCTWatermark:
         print(f"{BColors.OK_BLUE}LRAI DCT blocks shape: {lrai_dct_blocks.shape}{BColors.ENDC}")
 
         # Load or create watermark
-        watermark_path = os.path.join(self.directories["watermark_path"], f"watermark.bmp")
+        watermark_path = os.path.join(self.directories["watermark_path"], f"watermark_type{watermark_type}.bmp")
         watermark = WatermarkUtils.create_watermark_image(save_path=watermark_path, watermark_type=watermark_type)
 
         print(f"{BColors.OK_BLUE}Watermark Size: {watermark.shape}{BColors.ENDC}")
@@ -268,7 +268,8 @@ class TwoLevelDCTWatermark:
             length=len(high_freq_indices),
             n_streams=2,
             seed=seed,
-            image_name=image_name
+            image_name=image_name,
+            watermark_type=watermark_type
         )
 
         print(f"{BColors.OK_BLUE}Noise Patterns Size: {noise.shape}{BColors.ENDC}")
@@ -288,7 +289,7 @@ class TwoLevelDCTWatermark:
         # Save watermarked LRAI
         watermarked_lrai_path = os.path.join(
             self.directories["watermarked_low_res_image_path"],
-            f"{image_name}_watermarked_lrai_gain_{gain_factor}.bmp"
+            f"{image_name}_watermarked_lrai_gain_{gain_factor}_type{watermark_type}.bmp"
         )
         ImageUtils.save_image(img=watermarked_lrai, path=watermarked_lrai_path)
 
@@ -304,7 +305,7 @@ class TwoLevelDCTWatermark:
         # Save watermarked image
         watermarked_path = os.path.join(
             self.directories["watermarked_image_path"],
-            f"Watermarked_{image_name}_gain_{gain_factor}.bmp"
+            f"Watermarked_{image_name}_gain_{gain_factor}_type{watermark_type}.bmp"
         )
         ImageUtils.save_image(img=watermarked_image, path=watermarked_path)
 
@@ -323,6 +324,7 @@ class TwoLevelDCTWatermark:
             image_name: str,
             gain_factor: float = 30,
             seed: int = 48,
+            watermark_type: int = 1
     ) -> tuple[ndarray[tuple[int, int], dtype[Any]], floating[Any]]:
         """Extract watermark from image using the two-level DCT algorithm
 
@@ -346,7 +348,7 @@ class TwoLevelDCTWatermark:
         print(f"{BColors.OK_BLUE}LRAI DCT blocks shape: {lrai_dct_blocks.shape}{BColors.ENDC}")
 
         # Load original watermark for comparison
-        watermark_path = os.path.join(self.directories["watermark_path"], f"watermark.bmp")
+        watermark_path = os.path.join(self.directories["watermark_path"], f"watermark_type{watermark_type}.bmp")
         original_watermark = np.array(Image.open(watermark_path), dtype=np.bool_)
         watermark_height, watermark_width = original_watermark.shape
 
@@ -356,7 +358,8 @@ class TwoLevelDCTWatermark:
             length=len(high_freq_indices),
             n_streams=2,
             seed=seed,
-            image_name=image_name
+            image_name=image_name,
+            watermark_type=watermark_type
         )
 
         # Step 2 & 3: Calculate correlation and extract watermark bits
@@ -376,7 +379,7 @@ class TwoLevelDCTWatermark:
         # Save recovered watermark
         recovered_watermark_path = os.path.join(
             self.directories["extracted_watermark_path"],
-            f"Recovered_Watermark_{image_name}_gain_{gain_factor}.bmp"
+            f"Recovered_Watermark_{image_name}_gain_{gain_factor}_type{watermark_type}.bmp"
         )
         ImageUtils.save_image(img=recovered_watermark, path=recovered_watermark_path)
 
@@ -391,7 +394,8 @@ class TwoLevelDCTWatermark:
             original=original_watermark,
             recovered=recovered_watermark,
             image_name=image_name,
-            gain_factor=gain_factor
+            gain_factor=gain_factor,
+            watermark_type=watermark_type
         )
         return recovered_watermark, detection_accuracy
 
@@ -400,7 +404,8 @@ class TwoLevelDCTWatermark:
             original: np.ndarray,
             recovered: np.ndarray,
             image_name: str,
-            gain_factor: float
+            gain_factor: float,
+            watermark_type: int = 1
     ) -> None:
         """Visualize comparison between original and recovered watermark"""
         fig, axes = plt.subplots(1, 3, figsize=(15, 5))
@@ -428,7 +433,7 @@ class TwoLevelDCTWatermark:
         # Save figure
         comparison_path = os.path.join(
             self.directories["watermark_visualization_path"],
-            f"Watermark_Comparison_{image_name}_gain_{gain_factor}.png"
+            f"Watermark_Comparison_{image_name}_gain_{gain_factor}_type{watermark_type}.png"
         )
         plt.savefig(comparison_path)
         plt.close()
@@ -487,11 +492,12 @@ class Helper:
                     image_name=image_name,
                     gain_factor=gain_factor,
                     seed=seed,
+                    watermark_type=watermark_type,
                 )
 
                 print(f"{BColors.OK_BLUE}Seed {seed} achieved accuracy: {accuracy * 100:.2f}%{BColors.ENDC}")
 
-                # Update best seed if current is better
+                # Update the best seed if current is better
                 if accuracy > best_accuracy:
                     best_accuracy = accuracy
                     best_seed = seed
@@ -499,7 +505,7 @@ class Helper:
                         f"{BColors.OK_GREEN}New best seed found: {best_seed} with accuracy {best_accuracy * 100:.2f}%{BColors.ENDC}")
 
                 # If we reached 100% accuracy, break
-                if accuracy == 1.0:
+                if accuracy == 1.0 or accuracy == 1:
                     print(f"{BColors.OK_GREEN}Found perfect seed: {seed} with 100% accuracy!{BColors.ENDC}")
                     return seed
 
@@ -563,25 +569,30 @@ def main():
     watermarker = TwoLevelDCTWatermark(directories)
 
     # Process image with watermark
+    watermark_type = 1             # Watermark Type 2
+    seed = 292                     # GoldHill = 104, Lenna = 2537
+    gain_factor = 30               # Watermark Type 1
+    image_name = "goldhill"        # GoldHill = 292, Lenna = 2825
     watermarked_image, watermarked_lrai_dct = watermarker.embed_watermark(
-        image_name="goldhill",
-        watermark_type=2,
-        gain_factor=30,
-        seed=104, # GoldHill = 104, Lenna = 2537
+        image_name=image_name,
+        watermark_type=watermark_type,
+        gain_factor=gain_factor,
+        seed=seed,
     )
 
     # Extract and verify watermark
     recovered_watermark, accuracy = watermarker.extract_watermark(
         watermarked_image=watermarked_image,
-        image_name="goldhill",
-        gain_factor=30,
-        seed=104,  # GoldHill = 104, Lenna = 2537
+        image_name=image_name,
+        gain_factor=gain_factor,
+        seed=seed,
+        watermark_type=watermark_type
     )
 
     print(f"Watermark detection accuracy: {accuracy * 100:.2f}%")
 
 
-# Example of usage in main():
+
 def main_with_seed_finder():
     # Define directory structure
     directories = {
@@ -598,45 +609,10 @@ def main_with_seed_finder():
     # Initialize Two-Level DCT Watermarking
     watermarker = TwoLevelDCTWatermark(directories)
 
-    # # Find optimal seed for a single image
-    # optimal_seed = Helper.find_optimal_seed(
-    #     watermarker=watermarker,
-    #     image_name="lenna",
-    #     watermark_type=2,
-    #     gain_factor=30,
-    #     start_seed=1,
-    #     max_seed=10000,
-    #     max_attempts=5000
-    # )
-    #
-    # if optimal_seed != -1:
-    #     print(f"Found optimal seed: {optimal_seed}")
-    #
-    #     # Use the optimal seed for final watermarking
-    #     watermarked_image, watermarked_lrai_dct = watermarker.embed_watermark(
-    #         image_name="lenna",
-    #         watermark_type=2,
-    #         gain_factor=30,
-    #         seed=optimal_seed,
-    #     )
-    #
-    #     # Extract and verify watermark
-    #     recovered_watermark, accuracy = watermarker.extract_watermark(
-    #         watermarked_image=watermarked_image,
-    #         image_name="lenna",
-    #         gain_factor=30,
-    #         seed=optimal_seed,
-    #     )
-    #
-    #     print(f"Final watermark detection accuracy: {accuracy * 100:.2f}%")
-    # else:
-    #     print("Failed to find an optimal seed with 100% accuracy.")
-
-    # Optional: Test multiple configurations in batch
     Helper.batch_test_seeds(
         watermarker=watermarker,
-        image_names=["lenna"],
-        watermark_types=[2],
+        image_names=["goldhill"],
+        watermark_types=[1],
         gain_factors=[30],
         seed_ranges=(1, 100000, 5000)
     )
