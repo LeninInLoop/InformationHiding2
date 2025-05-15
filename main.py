@@ -121,7 +121,7 @@ class WatermarkUtils:
         return watermark_array
 
     @staticmethod
-    def generate_noise(length, n_streams=2, seed=None) -> np.ndarray:
+    def generate_noise(length, n_streams=2, seed=None, image_name: str = "lenna") -> np.ndarray:
         generator = LowCorrelationSequenceGenerator(
             master_seed = seed
             )
@@ -141,7 +141,7 @@ class WatermarkUtils:
         is_reproducible, regenerated_corr = generator.verify_reproducibility()
         print(BColors.OK_GREEN + f"Sequences are reproducible: {is_reproducible}" + BColors.ENDC)
 
-        generator.save_seed_results("my_low_correlation_seeds.txt")
+        generator.save_seed_results(f"{image_name}_{seed}_low_correlation_seeds.txt")
         return np.array(sequences, dtype=np.float32)
 
     @staticmethod
@@ -264,7 +264,12 @@ class TwoLevelDCTWatermark:
 
         # Generate noise patterns for bit 0 and bit 1
         high_freq_indices = WatermarkUtils.get_high_frequency_indices()
-        noise = WatermarkUtils.generate_noise(length=len(high_freq_indices), n_streams=2, seed=seed)
+        noise = WatermarkUtils.generate_noise(
+            length=len(high_freq_indices),
+            n_streams=2,
+            seed=seed,
+            image_name=image_name
+        )
 
         print(f"{BColors.OK_BLUE}Noise Patterns Size: {noise.shape}{BColors.ENDC}")
         print(f"{BColors.OK_BLUE}High Frequency Coefficients: {len(high_freq_indices)}{BColors.ENDC}")
@@ -347,7 +352,12 @@ class TwoLevelDCTWatermark:
 
         # Generate the same noise patterns used for embedding
         high_freq_indices = WatermarkUtils.get_high_frequency_indices()
-        noise = WatermarkUtils.generate_noise(length=len(high_freq_indices), n_streams=2, seed=seed)
+        noise = WatermarkUtils.generate_noise(
+            length=len(high_freq_indices),
+            n_streams=2,
+            seed=seed,
+            image_name=image_name
+        )
 
         # Step 2 & 3: Calculate correlation and extract watermark bits
         recovered_watermark = np.zeros((watermark_height, watermark_width), dtype=np.bool_)
@@ -554,18 +564,18 @@ def main():
 
     # Process image with watermark
     watermarked_image, watermarked_lrai_dct = watermarker.embed_watermark(
-        image_name="lenna",
+        image_name="goldhill",
         watermark_type=2,
         gain_factor=30,
-        seed=2537, # GoldHill = 104, Lenna = 2537
+        seed=104, # GoldHill = 104, Lenna = 2537
     )
 
     # Extract and verify watermark
     recovered_watermark, accuracy = watermarker.extract_watermark(
         watermarked_image=watermarked_image,
-        image_name="lenna",
+        image_name="goldhill",
         gain_factor=30,
-        seed=2537,
+        seed=104,  # GoldHill = 104, Lenna = 2537
     )
 
     print(f"Watermark detection accuracy: {accuracy * 100:.2f}%")
@@ -623,7 +633,7 @@ def main_with_seed_finder():
     #     print("Failed to find an optimal seed with 100% accuracy.")
 
     # Optional: Test multiple configurations in batch
-    results = Helper.batch_test_seeds(
+    Helper.batch_test_seeds(
         watermarker=watermarker,
         image_names=["lenna"],
         watermark_types=[2],
