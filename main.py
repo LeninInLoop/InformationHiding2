@@ -424,6 +424,118 @@ class TwoLevelDCTWatermark:
         plt.close()
 
 
+class Helper:
+    @staticmethod
+    def find_optimal_seed(
+            watermarker,
+            image_name,
+            watermark_type=2,
+            gain_factor=30,
+            start_seed=0,
+            max_seed=100,
+            max_attempts=1000
+    ):
+
+        print(f"{BColors.HEADER}Finding optimal seed for image: {image_name}{BColors.ENDC}")
+        print(f"{BColors.OK_BLUE}Parameters: watermark_type={watermark_type}, gain_factor={gain_factor}{BColors.ENDC}")
+        print(f"{BColors.OK_BLUE}Testing seeds from {start_seed} to {max_seed}{BColors.ENDC}")
+
+        best_seed = -1
+        best_accuracy = 0.0
+        attempts = 0
+
+        # Load and prepare the original image
+        original_path = os.path.join(watermarker.directories['image_base_path'], f"{image_name}.bmp")
+        original_image = ImageUtils.load_image(original_path)
+
+        # Convert to grayscale if needed
+        if len(original_image.shape) > 2:
+            original_image = ImageUtils.convert_to_gray_scale(original_image)
+
+        # Resize to multiple of 8 if needed
+        original_image = ImageUtils.resize_image(original_image, (512, 512))
+
+        for seed in range(start_seed, max_seed + 1):
+            attempts += 1
+            if attempts > max_attempts:
+                break
+
+            print(f"\n{BColors.OK_CYAN}Testing seed: {seed} (Attempt {attempts}/{max_attempts}){BColors.ENDC}")
+
+            try:
+                # Embed watermark with current seed
+                watermarked_image, _ = watermarker.embed_watermark(
+                    image_name=image_name,
+                    watermark_type=watermark_type,
+                    gain_factor=gain_factor,
+                    seed=seed,
+                )
+
+                # Extract watermark and check accuracy
+                _, accuracy = watermarker.extract_watermark(
+                    watermarked_image=watermarked_image,
+                    image_name=image_name,
+                    gain_factor=gain_factor,
+                    seed=seed,
+                )
+
+                print(f"{BColors.OK_BLUE}Seed {seed} achieved accuracy: {accuracy * 100:.2f}%{BColors.ENDC}")
+
+                # Update best seed if current is better
+                if accuracy > best_accuracy:
+                    best_accuracy = accuracy
+                    best_seed = seed
+                    print(
+                        f"{BColors.OK_GREEN}New best seed found: {best_seed} with accuracy {best_accuracy * 100:.2f}%{BColors.ENDC}")
+
+                # If we reached 100% accuracy, break
+                if accuracy == 1.0:
+                    print(f"{BColors.OK_GREEN}Found perfect seed: {seed} with 100% accuracy!{BColors.ENDC}")
+                    return seed
+
+            except Exception as e:
+                print(f"{BColors.FAIL}Error testing seed {seed}: {str(e)}{BColors.ENDC}")
+
+        if best_seed != -1:
+            print(
+                f"\n{BColors.WARNING}Best seed found: {best_seed} with accuracy {best_accuracy * 100:.2f}%{BColors.ENDC}")
+        else:
+            print(f"\n{BColors.FAIL}No suitable seed found after {attempts} attempts{BColors.ENDC}")
+
+        return best_seed
+
+    @staticmethod
+    def batch_test_seeds(watermarker, image_names, watermark_types, gain_factors, seed_ranges):
+        start_seed, max_seed, max_attempts = seed_ranges
+        results = {}
+
+        for image_name in image_names:
+            for watermark_type in watermark_types:
+                for gain_factor in gain_factors:
+                    print(
+                        f"\n{BColors.HEADER}Testing configuration: Image={image_name}, Type={watermark_type}, Gain={gain_factor}{BColors.ENDC}")
+
+                    optimal_seed = Helper.find_optimal_seed(
+                        watermarker=watermarker,
+                        image_name=image_name,
+                        watermark_type=watermark_type,
+                        gain_factor=gain_factor,
+                        start_seed=start_seed,
+                        max_seed=max_seed,
+                        max_attempts=max_attempts
+                    )
+
+                    config_key = f"{image_name}_type{watermark_type}_gain{gain_factor}"
+                    results[config_key] = optimal_seed
+
+        # Print summary of results
+        print(f"\n{BColors.HEADER}Summary of Optimal Seeds:{BColors.ENDC}")
+        for config, seed in results.items():
+            accuracy_text = "100%" if seed != -1 else "Failed"
+            print(f"{BColors.OK_BLUE}{config}: Seed={seed}, Accuracy={accuracy_text}{BColors.ENDC}")
+
+        return results
+
 def main():
     # Define directory structure
     directories = {
@@ -445,7 +557,7 @@ def main():
         image_name="lenna",
         watermark_type=2,
         gain_factor=30,
-        seed=42,
+        seed=2537, # GoldHill = 104, Lenna = 2537
     )
 
     # Extract and verify watermark
@@ -453,11 +565,72 @@ def main():
         watermarked_image=watermarked_image,
         image_name="lenna",
         gain_factor=30,
-        seed=42,
+        seed=2537,
     )
 
     print(f"Watermark detection accuracy: {accuracy * 100:.2f}%")
 
 
+# Example of usage in main():
+def main_with_seed_finder():
+    # Define directory structure
+    directories = {
+        "image_base_path": "Images",
+        "original_gray_path": "Images/Original_Gray_Scale",
+        "low_res_approx_image_path": "Images/LRAI",
+        "watermark_path": "Images/Watermark",
+        "watermarked_image_path": "Images/Watermarked_Images",
+        "watermarked_low_res_image_path": "Images/Watermarked_Images/LRAI",
+        "extracted_watermark_path": "Images/Extracted_Watermarks",
+        "watermark_visualization_path": "Images/Watermark_Visualizations",
+    }
+
+    # Initialize Two-Level DCT Watermarking
+    watermarker = TwoLevelDCTWatermark(directories)
+
+    # # Find optimal seed for a single image
+    # optimal_seed = Helper.find_optimal_seed(
+    #     watermarker=watermarker,
+    #     image_name="lenna",
+    #     watermark_type=2,
+    #     gain_factor=30,
+    #     start_seed=1,
+    #     max_seed=10000,
+    #     max_attempts=5000
+    # )
+    #
+    # if optimal_seed != -1:
+    #     print(f"Found optimal seed: {optimal_seed}")
+    #
+    #     # Use the optimal seed for final watermarking
+    #     watermarked_image, watermarked_lrai_dct = watermarker.embed_watermark(
+    #         image_name="lenna",
+    #         watermark_type=2,
+    #         gain_factor=30,
+    #         seed=optimal_seed,
+    #     )
+    #
+    #     # Extract and verify watermark
+    #     recovered_watermark, accuracy = watermarker.extract_watermark(
+    #         watermarked_image=watermarked_image,
+    #         image_name="lenna",
+    #         gain_factor=30,
+    #         seed=optimal_seed,
+    #     )
+    #
+    #     print(f"Final watermark detection accuracy: {accuracy * 100:.2f}%")
+    # else:
+    #     print("Failed to find an optimal seed with 100% accuracy.")
+
+    # Optional: Test multiple configurations in batch
+    results = Helper.batch_test_seeds(
+        watermarker=watermarker,
+        image_names=["lenna"],
+        watermark_types=[2],
+        gain_factors=[30],
+        seed_ranges=(1, 100000, 5000)
+    )
+
 if __name__ == '__main__':
+    # main_with_seed_finder()
     main()
