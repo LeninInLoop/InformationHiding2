@@ -1,0 +1,28 @@
+# PSNR Analysis - Gain Factor Relationship
+# Date: 2025-05-21 03:41:04
+# Parameters: Watermark Type=2, Seed=2537, Equal Probability=False, Sequences=16
+
+## Image: lenna
+Gain Factor | PSNR (dB) | Accuracy (%)
+-----------------------------------
+     5      |  56.27   |    53.52   
+    10      |  50.25   |    57.81   
+    15      |  46.73   |    60.16   
+    20      |  44.23   |    63.28   
+    25      |  42.29   |    68.75   
+    30      |  40.71   |    71.48   
+    35      |  39.37   |    79.30   
+
+
+## Image: goldhill
+Gain Factor | PSNR (dB) | Accuracy (%)
+-----------------------------------
+     5      |  56.27   |    54.69   
+    10      |  50.25   |    58.59   
+    15      |  46.73   |    63.67   
+    20      |  44.23   |    70.70   
+    25      |  42.29   |    74.61   
+    30      |  40.71   |    82.42   
+    35      |  39.37   |    85.55   
+
+

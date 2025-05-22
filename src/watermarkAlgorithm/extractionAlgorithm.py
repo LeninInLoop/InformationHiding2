@@ -46,7 +46,10 @@ class TwoLevelDCTWatermarkExtraction:
         print(f"{BColors.OK_BLUE}LRAI DCT blocks shape: {lrai_dct_blocks.shape}{BColors.ENDC}")
 
         # Load original watermark for comparison
-        watermark_path = os.path.join(self.directories["watermark_path"], f"watermark_type{watermark_type}.bmp")
+        watermark_path = os.path.join(
+            self.directories["watermark_path"],
+            f"watermark_type{watermark_type}_{number_of_sequences}.bmp"
+        )
         original_watermark = ImageUtils.load_image(watermark_path).astype(np.bool)
 
         # Generate the same noise patterns used for embedding
@@ -91,7 +94,7 @@ class TwoLevelDCTWatermarkExtraction:
         # Save recovered watermark
         recovered_watermark_path = os.path.join(
             self.directories["extracted_watermark_path"],
-            f"Recovered_Watermark_{image_name}_gain_{gain_factor}_type{watermark_type}.bmp"
+            f"Recovered_Watermark_{image_name}_gain_{gain_factor}_type{watermark_type}_{number_of_sequences}.bmp"
         )
         ImageUtils.save_image(img=recovered_watermark, path=recovered_watermark_path)
 
@@ -104,7 +107,7 @@ class TwoLevelDCTWatermarkExtraction:
         # Visualize watermark comparison
         comparison_path = os.path.join(
             self.directories["watermark_visualization_path"],
-            f"Watermark_Comparison_{image_name}_gain_{gain_factor}_type{watermark_type}.png"
+            f"Watermark_Comparison_{image_name}_gain_{gain_factor}_type{watermark_type}_{number_of_sequences}.png"
         )
         Visualization.visualize_watermark_comparison(
             original=original_watermark,

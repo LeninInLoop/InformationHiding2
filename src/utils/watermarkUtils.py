@@ -195,7 +195,8 @@ class WatermarkUtils:
         is_reproducible, regenerated_corr = generator.verify_reproducibility()
         print(BColors.OK_GREEN + f"Sequences are reproducible: {is_reproducible}" + BColors.ENDC)
 
-        generator.save_seed_results(f"{image_name}_{seed}_low_correlation_seeds_type{watermark_type}.txt")
+        generator.save_seed_results(f"{image_name}_{seed}_low_correlation_seeds"
+                                    f"_type{watermark_type}_{equal_probability}_{n_streams}.txt")
         return np.array(sequences, dtype=np.float32)
 
     @staticmethod

@@ -57,9 +57,12 @@ class TwoLevelDCTWatermarkEmbedding:
         # Step 1: Compute BDCT of host image
         original_dct_blocks = DCTUtils.block_dct(original_image, block_shape=(8,8))
         print(f"{BColors.OK_BLUE}Original DCT blocks shape: {original_dct_blocks.shape}{BColors.ENDC}")
+        print(50 * "=", f"\n{image_name} DCT Values:\n", original_dct_blocks)
 
         # Step 2: Create LRAI from DC coefficients
         dc_values = DCTUtils.extract_dc_values(original_dct_blocks)
+        print(50 * "=", f"\n{image_name} LRAI Values:\n", dc_values)
+
         lrai_path = os.path.join(self.directories["low_res_approx_image_path"], f"{image_name}_lrai.bmp")
         ImageUtils.save_image(path=lrai_path, img=dc_values)
 
@@ -67,11 +70,16 @@ class TwoLevelDCTWatermarkEmbedding:
 
         # Step 3: Compute BDCT of LRAI
         lrai_dct_blocks = DCTUtils.block_dct(image=dc_values, block_shape=(8,8))
+        # np.set_printoptions(precision=6, suppress=True, threshold=10000)
+        print(50 * "=", f"\n{image_name} LRAI DCT Values:\n", lrai_dct_blocks)
 
         print(f"{BColors.OK_BLUE}LRAI DCT blocks shape: {lrai_dct_blocks.shape}{BColors.ENDC}")
 
         # Load or create watermark
-        watermark_path = os.path.join(self.directories["watermark_path"], f"watermark_type{watermark_type}.bmp")
+        watermark_path = os.path.join(
+            self.directories["watermark_path"],
+            f"watermark_type{watermark_type}_{number_of_sequences}.bmp"
+        )
         if number_of_sequences == 2:
             size = (8, 8)
         elif number_of_sequences == 4:
@@ -124,7 +132,7 @@ class TwoLevelDCTWatermarkEmbedding:
         # Save watermarked LRAI
         watermarked_lrai_path = os.path.join(
             self.directories["watermarked_low_res_image_path"],
-            f"{image_name}_watermarked_lrai_gain_{gain_factor}_type{watermark_type}.bmp"
+            f"{image_name}_watermarked_lrai_gain_{gain_factor}_type{watermark_type}_{number_of_sequences}.bmp"
         )
         ImageUtils.save_image(img=watermarked_lrai, path=watermarked_lrai_path)
 
@@ -140,7 +148,7 @@ class TwoLevelDCTWatermarkEmbedding:
         # Save watermarked image
         watermarked_path = os.path.join(
             self.directories["watermarked_image_path"],
-            f"Watermarked_{image_name}_gain_{gain_factor}_type{watermark_type}.bmp"
+            f"Watermarked_{image_name}_gain_{gain_factor}_type{watermark_type}_{number_of_sequences}.bmp"
         )
         ImageUtils.save_image(img=watermarked_image, path=watermarked_path)
 

@@ -1,0 +1,28 @@
+# Correlation Analysis - Gain Factor Relationship
+# Date: 2025-05-20 21:32:39
+# Parameters: Watermark Type=2, Equal Probability=False, Sequences=4
+
+## Image: lenna (Seed: 2537)
+Gain Factor | Correlation | Accuracy (%)
+----------------------------------------
+     5      |   -0.0369   |    48.44   
+    10      |   0.0716    |    54.69   
+    15      |   0.2463    |    64.84   
+    20      |   0.3055    |    69.53   
+    25      |   0.4655    |    77.34   
+    30      |   0.4898    |    78.91   
+    35      |   0.5954    |    83.59   
+
+
+## Image: goldhill (Seed: 104)
+Gain Factor | Correlation | Accuracy (%)
+----------------------------------------
+     5      |   0.0151    |    53.12   
+    10      |   0.1069    |    57.81   
+    15      |   0.2928    |    65.62   
+    20      |   0.4436    |    73.44   
+    25      |   0.5776    |    79.69   
+    30      |   0.6116    |    82.03   
+    35      |   0.6116    |    82.03   
+
+

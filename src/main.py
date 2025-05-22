@@ -15,7 +15,8 @@ def main():
         "watermarked_low_res_image_path": "Images/Watermarked_Images/LRAI",
         "extracted_watermark_path": "Images/Extracted_Watermarks",
         "watermark_visualization_path": "Images/Watermark_Visualizations",
-        "results": "Images/Results",
+        "results": "Images/Analyse Results",
+        "noisy_images": "Images/Noisy Images",
     }
 
     # Initialize Two-Level DCT Watermarking
@@ -23,12 +24,12 @@ def main():
     extractor = TwoLevelDCTWatermarkExtraction(directories)
 
     # Process image with watermark           G = 30                            G = 15
-    watermark_type = 1                  # Watermark Type 2                # Watermark Type 2
-    seed = 2825                         # GoldHill = 104, Lenna = 2537    # GoldHill = 800(95.31%), Lenna = 1419(93.75%)
+    watermark_type = 2                  # Watermark Type 2                # Watermark Type 2
+    seed = 2537                         # GoldHill = 104, Lenna = 2537    # GoldHill = 800(95.31%), Lenna = 1419(93.75%)
     gain_factor = 30                    # Watermark Type 1                # Watermark Type 1
-    image_name = "lenna"                # GoldHill = 292, Lenna = 2825    # GoldHill = 4891(96.88%), Lenna = 765(92.19%)
+    image_name = "lenna"             # GoldHill = 292, Lenna = 2825    # GoldHill = 4891(96.88%), Lenna = 765(92.19%)
     equal_probability = False
-    n_sequences = 4
+    n_sequences = 2
     watermarked_image = embedder.embed_watermark(
         image_name=image_name,
         watermark_type=watermark_type,
@@ -65,57 +66,59 @@ def main():
     watermarker = {
         "embedder": embedder,
         "extractor": extractor
-    }
-    AttackAnalyzer.analyze_gain_factor_psnr_relationship(
-        watermarker=watermarker,
-        image_names=["lenna", "goldhill"],
-        seed=seed,
-        n_sequences=n_sequences,
-        watermark_type=watermark_type,
-        equal_probability=equal_probability,
-        save_path=os.path.join(
-            directories["results"], f"{image_name}_{seed}_{watermark_type}_"
-            f"gain_factor_psnr_relationship_{equal_probability}_{n_sequences}.png"
-        )
-    )
-    AttackAnalyzer.analyze_gain_factor_correlation_relationship(
-        watermarker=watermarker,
-        image_names=["lenna", "goldhill"],
-        seed=seed,
-        n_sequences=n_sequences,
-        equal_probability=equal_probability,
-        watermark_type=watermark_type,
-        save_path=os.path.join(
-            directories["results"], f"{image_name}_{seed}_{watermark_type}_"
-            f"gain_factor_NC_relationship_{equal_probability}_{n_sequences}.png"
-        )
-    )
-    for image_name in ["lenna", "goldhill"]:
-        AttackAnalyzer.analyze_jpeg_quality_correlation(
-            watermarker=watermarker,
-            image_name=image_name,
-            seed=seed,
-            n_sequences=n_sequences,
-            watermark_type=watermark_type,
-            equal_probability=equal_probability,
-            save_path=os.path.join(
-                directories["results"], f"{image_name}_{seed}_{watermark_type}_"
-                f"gain_factor_JPEG_relationship_{equal_probability}_{n_sequences}.png"
+        }
+    for n_sequences in [2, 4, 8, 16]:
+        for seed in [2537, 104]:
+            AttackAnalyzer.analyze_gain_factor_psnr_relationship(
+                watermarker=watermarker,
+                image_names=["lenna", "goldhill"],
+                seed=seed,
+                n_sequences=n_sequences,
+                watermark_type=watermark_type,
+                equal_probability=equal_probability,
+                save_path=os.path.join(
+                    directories["results"], f"{image_name}_{seed}_{watermark_type}_"
+                    f"gain_factor_psnr_relationship_{equal_probability}_{n_sequences}.png"
+                )
             )
-        )
-        AttackAnalyzer.analyze_gaussian_noise_correlation(
-            watermarker=watermarker,
-            image_name=image_name,
-            seed=seed,
-            equal_probability=equal_probability,
-            n_sequences=n_sequences,
-            watermark_type=watermark_type,
-            save_path=os.path.join(
-                directories["results"], f"{image_name}_{seed}_{watermark_type}_"
-                f"gain_factor_noise_relationship_{equal_probability}_{n_sequences}.png"
+            AttackAnalyzer.analyze_gain_factor_correlation_relationship(
+                watermarker=watermarker,
+                image_names=["lenna", "goldhill"],
+                seed=(2537, 104),
+                n_sequences=n_sequences,
+                equal_probability=equal_probability,
+                watermark_type=watermark_type,
+                save_path=os.path.join(
+                    directories["results"], f"{image_name}_{seed}_{watermark_type}_"
+                    f"gain_factor_NC_relationship_{equal_probability}_{n_sequences}.png"
+                )
             )
-        )
-    #
+            for image_name in ["lenna", "goldhill"]:
+                AttackAnalyzer.analyze_jpeg_quality_correlation(
+                    watermarker=watermarker,
+                    image_name=image_name,
+                    seed=seed,
+                    n_sequences=n_sequences,
+                    watermark_type=watermark_type,
+                    equal_probability=equal_probability,
+                    save_path=os.path.join(
+                        directories["results"], f"{image_name}_{seed}_{watermark_type}_"
+                        f"gain_factor_JPEG_relationship_{equal_probability}_{n_sequences}.png"
+                    )
+                )
+                AttackAnalyzer.analyze_gaussian_noise_correlation(
+                    watermarker=watermarker,
+                    image_name=image_name,
+                    seed=seed,
+                    equal_probability=equal_probability,
+                    n_sequences=n_sequences,
+                    watermark_type=watermark_type,
+                    save_path=os.path.join(
+                        directories["results"], f"{image_name}_{seed}_{watermark_type}_"
+                        f"gain_factor_noise_relationship_{equal_probability}_{n_sequences}.png"
+                    )
+                )
+
     # OptimalSeedFinder.batch_test_seeds(
     #     watermarker=watermarker,
     #     image_names=["goldhill"],
